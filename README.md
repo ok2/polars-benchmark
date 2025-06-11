@@ -42,4 +42,17 @@ This will do the following,
 
 - Create a new virtual environment with all required dependencies.
 - Generate data for benchmarks.
+- Load the generated data into Exasol using `IMPORT FROM LOCAL`.
 - Run the benchmark suite.
+
+### Loading data into Exasol
+
+If you only want to import the generated tables into an Exasol database, run:
+
+```shell
+make load-exasol
+```
+
+The command connects using the credentials defined in `.env` or environment
+variables, creates the TPC-H tables if needed and issues `IMPORT FROM LOCAL`
+statements for each table.
