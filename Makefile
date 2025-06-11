@@ -92,7 +92,11 @@ run-polars-gpu-no-env: run-polars-no-env data/tables/ ## Run Polars CPU and GPU 
 
 .PHONY: run-duckdb
 run-duckdb: .venv data/tables/.generated ## Run DuckDB benchmarks
-	$(VENV_BIN)/python -m queries.duckdb
+       $(VENV_BIN)/python -m queries.duckdb
+
+.PHONY: run-exasol
+run-exasol: .venv ## Run Exasol benchmarks
+	$(VENV_BIN)/python -m queries.exasol
 
 .PHONY: run-pandas
 run-pandas: .venv data/tables/.generated ## Run pandas benchmarks
@@ -111,7 +115,7 @@ run-modin: .venv data/tables/.generated ## Run Modin benchmarks
 	$(VENV_BIN)/python -m queries.modin
 
 .PHONY: run-all
-run-all: run-polars run-duckdb run-pandas run-pyspark run-dask run-modin  ## Run all benchmarks
+run-all: run-polars run-duckdb run-exasol run-pandas run-pyspark run-dask run-modin  ## Run all benchmarks
 
 .PHONY: plot
 plot: .venv  ## Plot results
