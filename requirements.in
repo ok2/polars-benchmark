@@ -2,6 +2,7 @@ tpchgen-cli
 dask[dataframe]
 dask-expr
 duckdb
+pyexasol
 modin[ray]
 pandas>=2.0
 polars

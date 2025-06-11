@@ -75,12 +75,32 @@ class Plot(BaseSettings):
     )
 
 
+class Exasol(BaseSettings):
+    host: str = "localhost"
+    port: int = 8563
+    user: str = "sys"
+    password: str = "exasol"
+    schema: str = "tpch"
+
+    model_config = SettingsConfigDict(
+        env_prefix="exasol_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def dsn(self) -> str:
+        return f"{self.host}:{self.port}"
+
+
 class Settings(BaseSettings):
     scale_factor: float = 1.0
 
     paths: Paths = Paths()
     plot: Plot = Plot()
     run: Run = Run()
+    exasol: Exasol = Exasol()
 
     @computed_field  # type: ignore[prop-decorator]
     @property
