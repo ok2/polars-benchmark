@@ -59,8 +59,10 @@ data/tables/.generated: .venv  ## Generate data tables
 	# mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
 	# mv tpch-dbgen/*.tbl data/tables/scale-$(SCALE_FACTOR)/
 	# $(VENV_BIN)/python -m scripts.prepare_data --num-parts=1 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
-	rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
-	touch $@
+ifndef KEEP_TBL
+        rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
+endif
+        touch $@
 
 data/tables/: data/tables/.generated
 	@true
@@ -92,11 +94,17 @@ run-polars-gpu-no-env: run-polars-no-env data/tables/ ## Run Polars CPU and GPU 
 
 .PHONY: run-duckdb
 run-duckdb: .venv data/tables/.generated ## Run DuckDB benchmarks
-       $(VENV_BIN)/python -m queries.duckdb
+	$(VENV_BIN)/python -m queries.duckdb
+
+.PHONY: load-exasol
+load-exasol: .venv
+	$(MAKE) data/tables/.generated KEEP_TBL=1
+	$(VENV_BIN)/python -m scripts.load_exasol --data-dir="data/tables/scale-$(SCALE_FACTOR)"
+	rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
 
 .PHONY: run-exasol
-run-exasol: .venv ## Run Exasol benchmarks
-	$(VENV_BIN)/python -m queries.exasol
+run-exasol: .venv load-exasol ## Run Exasol benchmarks
+		$(VENV_BIN)/python -m queries.exasol
 
 .PHONY: run-pandas
 run-pandas: .venv data/tables/.generated ## Run pandas benchmarks
