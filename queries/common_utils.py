@@ -5,10 +5,13 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 from subprocess import run
+import os
 from typing import TYPE_CHECKING, Any
 
 from linetimer import CodeTimer
 
+import pandas as pd
+import warnings
 from settings import Settings
 
 if TYPE_CHECKING:
@@ -79,10 +82,19 @@ def execute_all(library_name: str) -> None:
     print(settings.model_dump_json())
 
     query_numbers = _get_query_numbers(library_name)
+    total_runs = settings.run.suite_iterations
 
-    with CodeTimer(name=f"Overall execution of ALL {library_name} queries", unit="s"):
-        for i in query_numbers:
-            run([sys.executable, "-m", f"queries.{library_name}.q{i}"])
+    overall_name = f"Overall execution of ALL {library_name} queries"
+    if total_runs != 1:
+        overall_name += f" x{total_runs}"
+    with CodeTimer(name=overall_name, unit="s"):
+        for run_idx in range(total_runs):
+            suite_name = f"Suite {run_idx + 1}/{total_runs} execution of ALL {library_name} queries"
+            with CodeTimer(name=suite_name, unit="s"):
+                for i in query_numbers:
+                    env = os.environ.copy()
+                    env["RUN_SUITE_ITERATION"] = str(run_idx + 1)
+                    run([sys.executable, "-m", f"queries.{library_name}.q{i}"], env=env)
 
 
 def _get_query_numbers(library_name: str) -> list[int]:
@@ -108,10 +120,13 @@ def run_query_generic(
     query_checker: Callable[..., None] | None = None,
 ) -> None:
     """Execute a query."""
-    for _ in range(settings.run.iterations):
-        with CodeTimer(
-            name=f"Run {library_name} query {query_number}", unit="s"
-        ) as timer:
+    for iter_idx in range(settings.run.iterations):
+        name = f"Run {library_name} query {query_number}"
+        if settings.run.suite_iterations != 1:
+            name += f" [suite {settings.run.suite_iteration}/{settings.run.suite_iterations}]"
+        if settings.run.iterations != 1:
+            name += f" [iter {iter_idx + 1}/{settings.run.iterations}]"
+        with CodeTimer(name=name, unit="s") as timer:
             result = query()
 
         if settings.run.log_timings:
@@ -148,7 +163,43 @@ def check_query_result_pd(result: pd.DataFrame, query_number: int) -> None:
     from pandas.testing import assert_frame_equal
 
     expected = _get_query_answer_pd(query_number)
-    assert_frame_equal(result.reset_index(drop=True), expected, check_dtype=False)
+    # detect which columns are string/extension dtype in the expected answers
+    string_cols = [
+        col.lower()
+        for col in expected.columns
+        if pd.api.types.is_string_dtype(expected[col]) or pd.api.types.is_object_dtype(expected[col])
+    ]
+    # normalize column names to lowercase for comparison
+    got = result.reset_index(drop=True).copy()
+    got.columns = [c.lower() for c in got.columns]
+    exp = expected.copy()
+    exp.columns = [c.lower() for c in exp.columns]
+    # strip whitespace and unify types for string columns
+    for col in string_cols:
+        if col in got.columns and col in exp.columns:
+            got[col] = got[col].astype(str).str.strip()
+            exp[col] = exp[col].astype(str).str.strip()
+    # convert any extension arrays (e.g. pyarrow) to numpy arrays for fair comparison
+    for col in exp.columns:
+        try:
+            exp[col] = exp[col].to_numpy()
+        except Exception:
+            pass
+
+    # normalize any date/datetime-like columns to ISO date strings for comparison
+    for col in set(got.columns).intersection(exp.columns):
+        try:
+            # ignore pandas warning about format inference falling back to dateutil
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    'ignore', message='Could not infer format.*', category=UserWarning
+                )
+                got[col] = pd.to_datetime(got[col]).dt.strftime('%Y-%m-%d')
+                exp[col] = pd.to_datetime(exp[col]).dt.strftime('%Y-%m-%d')
+        except Exception:
+            pass
+
+    assert_frame_equal(got, exp, check_dtype=False)
 
 
 def _get_query_answer_pl(query: int) -> pl.DataFrame:

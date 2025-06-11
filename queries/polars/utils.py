@@ -1,6 +1,5 @@
 import pathlib
 import tempfile
-from functools import partial
 from typing import Literal
 
 import polars as pl
@@ -158,43 +157,74 @@ def run_query(query_number: int, lf: pl.LazyFrame) -> None:
     # Eager load engine backend, so we don't time that.
     _preload_engine(engine)
 
-    if cloud:
-        import os
+    # Define the timed query function.  By default we collect and discard the DataFrame;
+    # only build/return a DataFrame when showing or checking results.
+    if not (settings.run.show_results or settings.run.check_results):
+        if cloud:
+            import os
+            import polars_cloud as pc
 
-        import polars_cloud as pc
+            os.environ["POLARS_SKIP_CLIENT_CHECK"] = "1"
 
-        os.environ["POLARS_SKIP_CLIENT_CHECK"] = "1"
+            class PatchedComputeContext(pc.ComputeContext):
+                def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+                    self._interactive = True
+                    self._compute_address = "localhost:5051"
+                    self._compute_public_key = b""
+                    self._compute_id = "1"  # type: ignore[assignment]
 
-        class PatchedComputeContext(pc.ComputeContext):
-            def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-                self._interactive = True
-                self._compute_address = "localhost:5051"
-                self._compute_public_key = b""
-                self._compute_id = "1"  # type: ignore[assignment]
+                def get_status(self: pc.ComputeContext) -> pc.ComputeContextStatus:
+                    return pc.ComputeContextStatus.RUNNING
 
-            def get_status(self: pc.ComputeContext) -> pc.ComputeContextStatus:
-                """Get the status of the compute cluster."""
-                return pc.ComputeContextStatus.RUNNING
+            pc.ComputeContext.__init__ = PatchedComputeContext.__init__  # type: ignore[assignment]
+            pc.ComputeContext.get_status = PatchedComputeContext.get_status  # type: ignore[method-assign]
 
-        pc.ComputeContext.__init__ = PatchedComputeContext.__init__  # type: ignore[assignment]
-        pc.ComputeContext.get_status = PatchedComputeContext.get_status  # type: ignore[method-assign]
-
-        def query():  # type: ignore[no-untyped-def]
-            result = pc.spawn(
-                lf, dst="file:///tmp/dst/", distributed=True
-            ).await_result()
-
-            if settings.run.show_results:
-                print(result.plan())
-            return result.lazy().collect()
+            def query() -> None:  # type: ignore[no-untyped-def]
+                result = pc.spawn(lf, dst="file:///tmp/dst/", distributed=True).await_result()
+                result.lazy().collect(engine=engine)  # type: ignore[arg-type]
+                return None
+        else:
+            def query() -> None:
+                lf.collect(
+                    streaming=streaming,
+                    new_streaming=new_streaming,
+                    no_optimization=eager,
+                    engine=engine,
+                )
+                return None
     else:
-        query = partial(
-            lf.collect,
-            streaming=streaming,
-            new_streaming=new_streaming,
-            no_optimization=eager,
-            engine=engine,
-        )
+        if cloud:
+            import os
+            import polars_cloud as pc
+
+            os.environ["POLARS_SKIP_CLIENT_CHECK"] = "1"
+
+            class PatchedComputeContext(pc.ComputeContext):
+                def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+                    self._interactive = True
+                    self._compute_address = "localhost:5051"
+                    self._compute_public_key = b""
+                    self._compute_id = "1"  # type: ignore[assignment]
+
+                def get_status(self: pc.ComputeContext) -> pc.ComputeContextStatus:
+                    return pc.ComputeContextStatus.RUNNING
+
+            pc.ComputeContext.__init__ = PatchedComputeContext.__init__  # type: ignore[assignment]
+            pc.ComputeContext.get_status = PatchedComputeContext.get_status  # type: ignore[method-assign]
+
+            def query() -> pl.DataFrame:  # type: ignore[no-untyped-def]
+                result = pc.spawn(lf, dst="file:///tmp/dst/", distributed=True).await_result()
+                if settings.run.show_results:
+                    print(result.plan())
+                return result.lazy().collect(engine=engine)  # type: ignore[arg-type]
+        else:
+            def query() -> pl.DataFrame:
+                return lf.collect(
+                    streaming=streaming,
+                    new_streaming=new_streaming,
+                    no_optimization=eager,
+                    engine=engine,
+                )
 
     if gpu:
         library_name = f"polars-gpu-{settings.run.use_rmm_mr}"

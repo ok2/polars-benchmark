@@ -88,4 +88,14 @@ def get_part_supp_ds() -> DataFrame:
 
 
 def run_query(query_number: int, query: Callable[..., Any]) -> None:
-    run_query_generic(query, query_number, "dask", query_checker=check_query_result_pd)
+    # By default, execute the Dask query and discard the DataFrame;
+    # only return the DataFrame when showing or checking results.
+    if not (settings.run.show_results or settings.run.check_results):
+        def execute() -> None:
+            _ = query()
+            return None
+    else:
+        def execute() -> Any:
+            return query()
+
+    run_query_generic(execute, query_number, "dask", query_checker=check_query_result_pd)

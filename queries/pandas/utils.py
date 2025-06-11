@@ -80,6 +80,16 @@ def get_part_supp_ds() -> pd.DataFrame:
 
 
 def run_query(query_number: int, query: Callable[..., Any]) -> None:
+    # By default, execute the pandas query and discard the DataFrame;
+    # only return the DataFrame when showing or checking results.
+    if not (settings.run.show_results or settings.run.check_results):
+        def execute() -> None:
+            _ = query()
+            return None
+    else:
+        def execute() -> pd.DataFrame:
+            return query()
+
     run_query_generic(
-        query, query_number, "pandas", query_checker=check_query_result_pd
+        execute, query_number, "pandas", query_checker=check_query_result_pd
     )

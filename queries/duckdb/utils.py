@@ -1,5 +1,6 @@
 import duckdb
 from duckdb import DuckDBPyRelation
+from typing import Any
 
 from queries.common_utils import (
     check_query_result_pl,
@@ -65,7 +66,20 @@ def get_part_supp_ds() -> str:
 
 
 def run_query(query_number: int, context: DuckDBPyRelation) -> None:
-    query = context.pl
+    # Always materialize query results via execute().fetchall() by default;
+    # only return a DataFrame for result-checking or display.
+    if not (settings.run.show_results or settings.run.check_results):
+        def execute() -> None:
+            result = context.execute()
+            try:
+                result.fetchall()
+            except Exception:
+                pass
+            return None
+    else:
+        def execute() -> Any:
+            return context.pl()
+
     run_query_generic(
-        query, query_number, "duckdb", query_checker=check_query_result_pl
+        execute, query_number, "duckdb", query_checker=check_query_result_pl
     )

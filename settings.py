@@ -27,6 +27,8 @@ class Run(BaseSettings):
     io_type: IoType = "parquet"
 
     iterations: int = 1
+    suite_iterations: int = 1  # how many times to run the full query suite for cache/warm-up testing
+    suite_iteration: int = 1    # one-based index of the current suite run (set by execute_all)
     log_timings: bool = False
     show_results: bool = False
     check_results: bool = False  # Only available for SCALE_FACTOR=1
@@ -75,12 +77,32 @@ class Plot(BaseSettings):
     )
 
 
+class Exasol(BaseSettings):
+    host: str = "localhost"
+    port: int = 8563
+    user: str = "sys"
+    password: str = "exasol"
+    schema_name: str = "tpch"
+
+    model_config = SettingsConfigDict(
+        env_prefix="exasol_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def dsn(self) -> str:
+        return f"{self.host}:{self.port}"
+
+
 class Settings(BaseSettings):
     scale_factor: float = 1.0
 
     paths: Paths = Paths()
     plot: Plot = Plot()
     run: Run = Run()
+    exasol: Exasol = Exasol()
 
     @computed_field  # type: ignore[prop-decorator]
     @property

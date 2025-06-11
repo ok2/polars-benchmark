@@ -4,6 +4,7 @@ PYTHONPATH=
 SHELL=/bin/bash
 VENV=.venv
 VENV_BIN=$(VENV)/bin
+SCALE_FACTOR ?= 1.0
 
 .venv:  ## Set up Python virtual environment and install dependencies
 	python3 -m venv $(VENV)
@@ -45,35 +46,38 @@ data/tables/partitioned/:
 	@echo "SCALE_FACTOR not set, skipping data table generation"
 	@mkdir -p $@
 
+# Check that SCALE_FACTOR is a decimal value (has a dot)
+ifeq ($(findstring .,$(SCALE_FACTOR)),)
+$(error SCALE_FACTOR must contain a decimal point (e.g. 1.0))
+endif
 else
 
-data/tables/.generated: .venv  ## Generate data tables
-	# use tpch-cli
+## Generate raw .tbl files for Exasol (always reproducible)
+.PHONY: gen-tbl
+gen-tbl: .venv  ## Generate raw .tbl files for Exasol
+	mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
+	tpchgen-cli --output-dir="data/tables/scale-$(SCALE_FACTOR)" --format=tbl -s $(SCALE_FACTOR)
+
+## Generate data tables and convert to Parquet (remove raw .tbl files)
+data/tables/.generated-$(SCALE_FACTOR): .venv  ## Generate data tables for current scale factor
+	# use tpch-cli to generate raw .tbl for conversion
 	mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
 	tpchgen-cli --output-dir="data/tables/scale-$(SCALE_FACTOR)" --format=tbl -s $(SCALE_FACTOR)
 	$(VENV_BIN)/python -m scripts.prepare_data --num-parts=1 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
-
-	# use tpch-dbgen
-	# $(MAKE) -C tpch-dbgen dbgen
-	# cd tpch-dbgen && ./dbgen -vf -s $(SCALE_FACTOR) && cd ..
-	# mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
-	# mv tpch-dbgen/*.tbl data/tables/scale-$(SCALE_FACTOR)/
-	# $(VENV_BIN)/python -m scripts.prepare_data --num-parts=1 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
 	rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
 	touch $@
 
-data/tables/: data/tables/.generated
+data/tables/: data/tables/.generated-$(SCALE_FACTOR)
 	@true
 
 data/tables/partitioned/: .venv  ## Generate partitioned data tables (these are not yet runnable with current repo)
 	$(MAKE) -C tpch-dbgen dbgen
 	$(VENV_BIN)/python -m scripts.prepare_data --num-parts=10 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
 
-
 endif
 
 .PHONY: run-polars
-run-polars: .venv data/tables/.generated  ## Run Polars benchmarks
+run-polars: .venv data/tables/.generated-$(SCALE_FACTOR)  ## Run Polars benchmarks
 	$(VENV_BIN)/python -m queries.polars
 
 .PHONY: run-polars-no-env
@@ -91,27 +95,37 @@ run-polars-gpu-no-env: run-polars-no-env data/tables/ ## Run Polars CPU and GPU 
 	RUN_POLARS_GPU=true CUDA_MODULE_LOADING=EAGER python -m queries.polars
 
 .PHONY: run-duckdb
-run-duckdb: .venv data/tables/.generated ## Run DuckDB benchmarks
+run-duckdb: .venv data/tables/.generated-$(SCALE_FACTOR) ## Run DuckDB benchmarks
 	$(VENV_BIN)/python -m queries.duckdb
 
+
+.PHONY: load-exasol
+load-exasol: .venv gen-tbl  ## Load data into Exasol
+	$(VENV_BIN)/python -m scripts.load_exasol --data-dir="data/tables/scale-$(SCALE_FACTOR)"
+	rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
+
+.PHONY: run-exasol
+run-exasol: .venv load-exasol  ## Run Exasol benchmarks
+	$(VENV_BIN)/python -m queries.exasol
+
 .PHONY: run-pandas
-run-pandas: .venv data/tables/.generated ## Run pandas benchmarks
+run-pandas: .venv data/tables/.generated-$(SCALE_FACTOR) ## Run pandas benchmarks
 	$(VENV_BIN)/python -m queries.pandas
 
 .PHONY: run-pyspark
-run-pyspark: .venv data/tables/.generated ## Run PySpark benchmarks
+run-pyspark: .venv data/tables/.generated-$(SCALE_FACTOR) ## Run PySpark benchmarks
 	$(VENV_BIN)/python -m queries.pyspark
 
 .PHONY: run-dask
-run-dask: .venv data/tables/.generated ## Run Dask benchmarks
+run-dask: .venv data/tables/.generated-$(SCALE_FACTOR) ## Run Dask benchmarks
 	$(VENV_BIN)/python -m queries.dask
 
 .PHONY: run-modin
-run-modin: .venv data/tables/.generated ## Run Modin benchmarks
+run-modin: .venv data/tables/.generated-$(SCALE_FACTOR) ## Run Modin benchmarks
 	$(VENV_BIN)/python -m queries.modin
 
 .PHONY: run-all
-run-all: run-polars run-duckdb run-pandas run-pyspark run-dask run-modin  ## Run all benchmarks
+run-all: run-polars run-duckdb run-exasol run-pandas run-pyspark run-dask run-modin  ## Run all benchmarks
 
 .PHONY: plot
 plot: .venv  ## Plot results

@@ -83,8 +83,18 @@ def get_part_supp_ds() -> pd.DataFrame:
 
 
 def run_query(query_number: int, query: Callable[..., Any]) -> None:
+    # By default, execute the Modin query and discard the DataFrame;
+    # only return the DataFrame when showing or checking results.
+    if not (settings.run.show_results or settings.run.check_results):
+        def execute() -> None:
+            _ = query()
+            return None
+    else:
+        def execute() -> pd.DataFrame:
+            return query()
+
     run_query_generic(
-        query,
+        execute,
         query_number,
         "modin",
         query_checker=lambda df, q: check_query_result_pd(df._to_pandas(), q),
