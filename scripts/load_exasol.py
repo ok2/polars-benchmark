@@ -106,11 +106,27 @@ CREATE TABLE IF NOT EXISTS lineitem (
 }
 
 
+SQL_DIR = Path(__file__).resolve().parent.parent / "queries" / "exasol" / "queries"
+
+
+def _execute_sql_file(conn: pyexasol.ExaConnection, path: Path) -> None:
+    sql = path.read_text()
+    sql = sql.replace("tpc", settings.exasol.schema)
+    statements = [s.strip() for s in sql.split(";") if s.strip()]
+    for statement in statements:
+        conn.execute(statement)
+
+
 def create_schema_and_tables(conn: pyexasol.ExaConnection) -> None:
-    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {settings.exasol.schema}")
-    conn.execute(f"OPEN SCHEMA {settings.exasol.schema}")
-    for ddl in DDL.values():
-        conn.execute(ddl)
+    _execute_sql_file(conn, SQL_DIR / "create_schema.sql")
+
+
+def create_indices(conn: pyexasol.ExaConnection) -> None:
+    _execute_sql_file(conn, SQL_DIR / "create_indices_1node.sql")
+
+
+def analyze_database(conn: pyexasol.ExaConnection) -> None:
+    _execute_sql_file(conn, SQL_DIR / "analyze_database.sql")
 
 
 def import_table(conn: pyexasol.ExaConnection, table: str, data_dir: Path) -> None:
@@ -122,6 +138,7 @@ def import_table(conn: pyexasol.ExaConnection, table: str, data_dir: Path) -> No
         ROW SEPARATOR = 'LF';
     """
     conn.execute(stmt)
+    conn.execute("COMMIT")
 
 
 def main(data_dir: str) -> None:
@@ -134,6 +151,8 @@ def main(data_dir: str) -> None:
     base = Path(data_dir)
     for table in DDL.keys():
         import_table(conn, table, base)
+    create_indices(conn)
+    analyze_database(conn)
 
 
 if __name__ == "__main__":
