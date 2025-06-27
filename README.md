@@ -53,6 +53,36 @@ If you only want to import the generated tables into an Exasol database, run:
 make load-exasol
 ```
 
-The command connects using the credentials defined in `.env` or environment
-variables, creates the TPC-H tables if needed and issues `IMPORT FROM LOCAL`
-statements for each table.
+The command will generate the raw TPC-H `.tbl` files if needed, connect using
+the credentials defined in `.env` or environment variables, create the TPC-H
+tables if needed, and issue `IMPORT FROM LOCAL` statements for each table.
+
+### Running benchmarks
+
+Once data is prepared (and optionally loaded into Exasol), you can run specific benchmarks via `make`:
+
+| Make target        | Description                                   |
+|--------------------|-----------------------------------------------|
+| `make run-polars`  | Run Polars benchmarks                         |
+| `make run-duckdb`  | Run DuckDB benchmarks                         |
+| `make run-exasol`  | Run Exasol benchmarks                         |
+| `make run-pandas`  | Run pandas benchmarks                         |
+| `make run-pyspark` | Run PySpark benchmarks                        |
+| `make run-dask`    | Run Dask benchmarks                           |
+| `make run-modin`   | Run Modin benchmarks                          |
+| `make run-all`     | Run all benchmarks (including Exasol)         |
+| `make plot`        | Generate plots from benchmark results         |
+| `make clean`       | Remove generated data and cleanup environment |
+
+You can also run all benchmarks and generate plots in one step:
+
+```shell
+# Run benchmarks without IO overhead (cached IO)
+make run-all plot
+
+# Run benchmarks including IO overhead
+RUN_INCLUDE_IO=1 make run-all plot
+```
+
+Use the `SCALE_FACTOR` environment variable to adjust the dataset size
+(e.g., `SCALE_FACTOR=10` for larger data).

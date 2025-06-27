@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import argparse
 from pathlib import Path
 
@@ -142,17 +143,29 @@ def import_table(conn: pyexasol.ExaConnection, table: str, data_dir: Path) -> No
 
 
 def main(data_dir: str) -> None:
-    conn = pyexasol.connect(
-        dsn=settings.exasol.dsn,
-        user=settings.exasol.user,
-        password=settings.exasol.password,
-    )
-    create_schema_and_tables(conn)
-    base = Path(data_dir)
-    for table in DDL.keys():
-        import_table(conn, table, base)
-    create_indices(conn)
-    analyze_database(conn)
+    try:
+        conn = pyexasol.connect(
+            dsn=settings.exasol.dsn,
+            user=settings.exasol.user,
+            password=settings.exasol.password,
+        )
+    except Exception as e:
+        print(
+            f"Error: unable to connect to Exasol at {settings.exasol.dsn} as {settings.exasol.user}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        create_schema_and_tables(conn)
+        base = Path(data_dir)
+        for table in DDL.keys():
+            import_table(conn, table, base)
+        create_indices(conn)
+        analyze_database(conn)
+    except Exception as e:
+        print(f"Error loading tables into Exasol: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -47,22 +47,20 @@ data/tables/partitioned/:
 
 else
 
+## Generate raw .tbl files for Exasol (always reproducible)
+.PHONY: gen-tbl
+gen-tbl: .venv  ## Generate raw .tbl files for Exasol
+	mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
+	tpchgen-cli --output-dir="data/tables/scale-$(SCALE_FACTOR)" --format=tbl -s $(SCALE_FACTOR)
+
+## Generate data tables and convert to Parquet (remove raw .tbl files)
 data/tables/.generated: .venv  ## Generate data tables
-	# use tpch-cli
+	# use tpch-cli to generate raw .tbl for conversion
 	mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
 	tpchgen-cli --output-dir="data/tables/scale-$(SCALE_FACTOR)" --format=tbl -s $(SCALE_FACTOR)
 	$(VENV_BIN)/python -m scripts.prepare_data --num-parts=1 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
-
-	# use tpch-dbgen
-	# $(MAKE) -C tpch-dbgen dbgen
-	# cd tpch-dbgen && ./dbgen -vf -s $(SCALE_FACTOR) && cd ..
-	# mkdir -p "data/tables/scale-$(SCALE_FACTOR)"
-	# mv tpch-dbgen/*.tbl data/tables/scale-$(SCALE_FACTOR)/
-	# $(VENV_BIN)/python -m scripts.prepare_data --num-parts=1 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
-ifndef KEEP_TBL
-        rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
-endif
-        touch $@
+	rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
+	touch $@
 
 data/tables/: data/tables/.generated
 	@true
@@ -70,7 +68,6 @@ data/tables/: data/tables/.generated
 data/tables/partitioned/: .venv  ## Generate partitioned data tables (these are not yet runnable with current repo)
 	$(MAKE) -C tpch-dbgen dbgen
 	$(VENV_BIN)/python -m scripts.prepare_data --num-parts=10 --tpch_gen_folder="data/tables/scale-$(SCALE_FACTOR)"
-
 
 endif
 
@@ -97,14 +94,13 @@ run-duckdb: .venv data/tables/.generated ## Run DuckDB benchmarks
 	$(VENV_BIN)/python -m queries.duckdb
 
 .PHONY: load-exasol
-load-exasol: .venv
-	$(MAKE) data/tables/.generated KEEP_TBL=1
+load-exasol: .venv gen-tbl  ## Load data into Exasol
 	$(VENV_BIN)/python -m scripts.load_exasol --data-dir="data/tables/scale-$(SCALE_FACTOR)"
 	rm -rf data/tables/scale-$(SCALE_FACTOR)/*.tbl
 
 .PHONY: run-exasol
-run-exasol: .venv load-exasol ## Run Exasol benchmarks
-		$(VENV_BIN)/python -m queries.exasol
+run-exasol: .venv load-exasol  ## Run Exasol benchmarks
+	$(VENV_BIN)/python -m queries.exasol
 
 .PHONY: run-pandas
 run-pandas: .venv data/tables/.generated ## Run pandas benchmarks
